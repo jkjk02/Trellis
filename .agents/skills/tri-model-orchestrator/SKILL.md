@@ -1,130 +1,101 @@
+---
+name: tri-model-orchestrator
+description: |
+  Orchestrate collaborative development with Claude (orchestrator), Codex (backend implementation), and Gemini (code review).
+  Codex writes backend code, Gemini reviews for quality, Claude makes final decisions. Frontend handled separately by user.
+labels: [trellis, orchestration, tri-model, codex, gemini, code-review]
+---
+
 # Tri-Model Orchestrator
 
-Orchestrate collaborative development with Claude (orchestrator), Codex (backend), and Gemini (frontend).
+Orchestrate collaborative development with Claude (orchestrator), Codex (backend), and Gemini (code reviewer).
+
+## Workflow Overview
+
+**New simplified workflow**:
+1. **Claude** analyzes user request and creates backend task spec
+2. **Codex** implements backend code (API, database, business logic)
+3. **Gemini** reviews Codex's code for quality and correctness
+4. **Claude** makes final decision based on Gemini's review
+5. **Frontend** is handled separately by the user (not part of this workflow)
+
+**Key changes from original tri-model**:
+- ❌ No longer uses Gemini for frontend implementation
+- ✅ Gemini now focused on code review only
+- ✅ Codex handles all backend implementation
+- ✅ Frontend development delegated to user
 
 ## Trigger
 
 Use this skill when:
-- User requests a feature requiring both frontend and backend work
-- Task explicitly mentions "tri-model", "三模型", "codex+gemini", or "cross-test"
-- Complex full-stack feature development
+- User requests backend features or API development
+- Task requires code review after implementation
+- User explicitly mentions "tri-model", "codex review", or "code quality check"
 
 Do NOT use for:
-- Backend-only tasks (use Codex worker directly)
-- Frontend-only tasks (use Gemini worker directly)
-- Simple tasks completable by Claude alone
+- Frontend-only tasks (user handles frontend)
+- Simple tasks Codex can complete without review
+- Tasks explicitly marked as "no review needed"
 
 ## Workflow
 
-### Phase 1: Task Decomposition
+### Phase 1: Backend Implementation
 
-1. **Analyze user request** — identify frontend vs backend scope
-2. **Ask user confirmation** — present decomposition using AskUserQuestion:
-   ```
-   Question: "浮浮酱将任务分解为以下部分，主人确认？"
-   Options:
-   - "确认分解 (Recommended)" — proceed with decomposition
-   - "调整前端范围" — refine frontend scope
-   - "调整后端范围" — refine backend scope
-   - "改为单模型" — fallback to single-model approach
-   ```
-3. **Create task artifacts**:
-   - `backend-implement.jsonl` — Codex context manifest
-   - `frontend-implement.jsonl` — Gemini context manifest
-   - `cross-test-plan.md` — test matrix
-
-### Phase 2: Parallel Implementation
-
-Spawn workers in parallel:
-
-```bash
-# Backend worker (Codex)
-trellis channel spawn <task-slug> \
-  --agent backend-implement \
-  --provider codex \
-  --as codex-backend \
-  "Active task: <task-path>
-
-Implement backend features according to backend-implement.jsonl"
-
-# Frontend worker (Gemini)
-trellis channel spawn <task-slug> \
-  --agent frontend-implement \
-  --provider gemini \
-  --as gemini-frontend \
-  "Active task: <task-path>
-
-Implement frontend features according to frontend-implement.jsonl"
-```
-
-Monitor via:
-```bash
-trellis channel messages <task-slug>
-```
-
-### Phase 3: Cross-Testing
-
-After both workers report completion:
-
-1. **Codex tests Gemini's frontend**:
+1. **Analyze backend requirements** — identify API endpoints, database changes, business logic
+2. **Create backend spec** — `backend-implement.jsonl` with context files
+3. **Spawn Codex worker**:
    ```bash
-   trellis channel spawn <task-slug>-cross-test \
+   trellis channel spawn <task-slug> \
      --agent backend-implement \
      --provider codex \
-     --as codex-test-frontend \
+     --as codex-backend \
      "Active task: <task-path>
 
-Review and test frontend code in <frontend-files>:
-- Component structure correctness
-- API integration points
-- Type safety
-- Error handling
-
-Report findings in structured format."
+   Implement backend features according to backend-implement.jsonl"
    ```
+4. **Monitor progress** — wait for Codex to report completion
 
-2. **Gemini tests Codex's backend**:
+### Phase 2: Code Review
+
+After Codex reports completion:
+
+1. **Create review context** — `review-context.jsonl` listing files Codex modified
+2. **Spawn Gemini reviewer**:
    ```bash
-   trellis channel spawn <task-slug>-cross-test \
-     --agent frontend-implement \
+   trellis channel spawn <task-slug>-review \
+     --agent code-reviewer \
      --provider gemini \
-     --as gemini-test-backend \
+     --as gemini-review \
      "Active task: <task-path>
 
-Review backend API contracts in <backend-files>:
-- Endpoint compliance with spec
-- Response format
-- Error codes
-- Documentation completeness
+   Review backend code for:
+   - Correctness and logic errors
+   - Security vulnerabilities
+   - Best practices compliance
+   - Performance issues
 
-Report findings in structured format."
+   Report structured findings."
    ```
+3. **Wait for review** — Gemini provides detailed feedback
 
-3. **Collect results** — wait for both test workers to complete
+### Phase 3: Decision and Action
 
-### Phase 4: Claude Final Review
+After Gemini's review:
 
-1. **Read cross-test reports** from channel logs
-2. **Verify integration points**:
-   - API contract alignment
-   - Type consistency
-   - Error propagation
-3. **Run integration tests** if available
-4. **Ask user for approval** using AskUserQuestion:
+1. **Read review report** from channel logs
+2. **Assess severity**:
+   - **No issues / minor only**: Approve and proceed to commit
+   - **Major issues**: Re-spawn Codex with fix instructions
+   - **Critical issues**: Halt and notify user
+3. **User confirmation** using AskUserQuestion:
    ```
-   Question: "交叉测试完成，浮浮酱发现以下问题（如果有），主人决定？"
+   Question: "Gemini 审查完成，发现以下问题，主人决定？"
    Options:
-   - "通过，提交代码 (Recommended)" — commit changes
-   - "修复后端问题" — re-dispatch Codex
-   - "修复前端问题" — re-dispatch Gemini
-   - "人工介入" — pause for manual review
+   - "通过，提交代码 (Recommended)" — if no critical issues
+   - "修复后端问题" — re-dispatch Codex with Gemini's feedback
+   - "人工介入审查" — pause for manual review
    ```
-
-### Phase 5: Delivery
-
-1. **Commit changes** (if approved)
-2. **Update specs** — run `trellis-update-spec` for learnings
-3. **Archive task** — `/trellis:finish-work`
+4. **Execute decision** — commit, fix, or wait
 
 ## Worker Communication Protocol
 
@@ -134,94 +105,30 @@ Report findings in structured format."
 ```jsonl
 {"path": "src/api/users.ts", "purpose": "User API endpoints"}
 {"path": ".trellis/spec/api/rest.md", "purpose": "REST conventions"}
+{"path": "src/db/schema.sql", "purpose": "Database schema"}
 ```
 
 **Expected Output**: Channel message with:
 - Files modified
 - Implementation summary
 - Self-check results (lint, type-check, unit tests)
-- Integration setup instructions
+- API documentation
+- Database migrations (if any)
 
-### Frontend Worker (Gemini)
+### Code Reviewer (Gemini)
 
-**Input**: `frontend-implement.jsonl` with entries:
+**Input**: `review-context.jsonl` with entries:
 ```jsonl
-{"path": "src/components/UserList.tsx", "purpose": "User list component"}
-{"path": ".agents/skills/open-design/SKILL.md", "purpose": "Design system guide"}
+{"path": "src/api/users.ts", "purpose": "File to review", "changes": "Codex implementation"}
+{"path": ".trellis/spec/api/rest.md", "purpose": "Standards reference"}
 ```
 
-**Expected Output**: Channel message with:
-- Components created
-- Design system used
-- API integration points
-- Browser dev server setup
-
-## Cross-Test Protocol
-
-### Codex Testing Frontend
-
-**Task**: Verify Gemini's frontend integrates correctly with backend contracts
-
-**Checks**:
-- API calls match endpoint signatures
-- Request/response types align
-- Error handling covers backend error codes
-- No hardcoded backend URLs (use env vars)
-
-**Output Format**:
-```markdown
-## Frontend Cross-Test Report (Codex)
-
-### Files Reviewed
-- src/components/UserList.tsx
-- src/api/client.ts
-
-### Findings
-1. ✅ API calls use correct endpoints
-2. ⚠️  Missing error handling for 429 rate limit
-3. ❌ Hardcoded backend URL in client.ts:12
-
-### Recommendations
-- Add rate limit handling
-- Move backend URL to .env
-
-### Verdict
-- Blocking issues: 1
-- Warnings: 1
-```
-
-### Gemini Testing Backend
-
-**Task**: Verify Codex's backend provides contracts frontend expects
-
-**Checks**:
-- Endpoints match frontend API calls
-- Response schemas include all fields frontend uses
-- Error codes documented
-- CORS configured if needed
-
-**Output Format**:
-```markdown
-## Backend Cross-Test Report (Gemini)
-
-### Files Reviewed
-- src/api/users.ts
-- src/middleware/error.ts
-
-### Findings
-1. ✅ All endpoints frontend needs are present
-2. ✅ Response types match frontend expectations
-3. ⚠️  Error code 404 not documented in API spec
-4. ❌ CORS not configured for frontend origin
-
-### Recommendations
-- Document 404 behavior
-- Add CORS middleware
-
-### Verdict
-- Blocking issues: 1
-- Warnings: 1
-```
+**Expected Output**: Structured review report with:
+- Files reviewed
+- Summary of findings
+- Critical/Major/Minor issues (categorized)
+- Specific line numbers and suggestions
+- Verdict (approve/request changes/reject)
 
 ## Error Handling
 
@@ -230,73 +137,67 @@ Report findings in structured format."
 - If handshake timeout: increase timeout or check CLI installation
 - If code error: read crash log, fix prompt, re-spawn
 
-### Cross-Test Failure
-- **Blocking issues found**: re-dispatch relevant worker with fix instructions
-- **Warnings only**: ask user whether to proceed or fix
-- **Test disagreement**: Claude reviews manually, makes final call
+### Review Finds Critical Issues
+- **Critical issues**: Re-spawn Codex with specific fix instructions from Gemini
+- **Major issues**: Ask user whether to fix or proceed
+- **Minor only**: Proceed to commit with review notes
 
-### Integration Failure
+### Implementation Failure
 - Run `trellis-break-loop` to analyze root cause
 - Update specs to prevent recurrence
-- May need to re-decompose task differently
+- May need to revise requirements or approach
 
 ## Configuration
 
 ### Channel Names
-- Implementation: `<task-slug>` (e.g., `user-mgmt-feature`)
-- Cross-test: `<task-slug>-cross-test`
+- Implementation: `<task-slug>` (e.g., `user-api-feature`)
+- Code review: `<task-slug>-review`
 
 ### Worker Names
 - `codex-backend` — Codex implementing backend
-- `gemini-frontend` — Gemini implementing frontend  
-- `codex-test-frontend` — Codex testing Gemini's output
-- `gemini-test-backend` — Gemini testing Codex's output
+- `gemini-review` — Gemini reviewing code quality
 
 ### Timeout Defaults
-- Implementation workers: no timeout (until done/crash)
-- Cross-test workers: 10 minutes max
-- Claude review: blocking (waits for user decision)
+- Codex worker: no timeout (until done/crash)
+- Gemini reviewer: 10 minutes max
+- Claude decision: blocking (waits for user approval)
 
 ## Integration with Trellis
 
-- **Plan Phase**: Unchanged — still create PRD/design/implement
-- **Execute Phase**: This skill orchestrates worker dispatch
-- **Check Phase**: Cross-test results feed into `trellis-check`
+- **Plan Phase**: Unchanged — create PRD/design/implement
+- **Execute Phase**: This skill orchestrates Codex implementation
+- **Check Phase**: Gemini review replaces or supplements `trellis-check`
 - **Finish Phase**: Unchanged — commit, update specs, archive
 
 ## Example Session
 
 ```
-User: "Add user profile editing feature"
+User: "实现用户登录 API"
 
-Claude: [analyzes] This needs backend (PUT /users/:id) and frontend (ProfileEdit component).
-        [asks] "浮浮酱将任务分解为..."
-        [user confirms]
+Claude: [analyzes] This is a backend-only task (no frontend mentioned).
+        [creates] backend-implement.jsonl with API specs
+        [spawns] Codex worker
 
-Claude: [spawns] codex-backend + gemini-frontend in parallel
-        [monitors] trellis channel messages user-profile-edit
+Codex: "Backend complete. Modified: src/api/auth.ts, added JWT middleware, tests passing."
 
-[10 minutes later]
+Claude: [spawns] Gemini reviewer with review-context.jsonl
 
-Codex: "Backend complete. Modified: src/api/users.ts, tests passing."
-Gemini: "Frontend complete. Component: ProfileEdit.tsx, using shadcn/ui."
+Gemini: "Code Review Report:
+         Critical: None
+         Major: Password hashing uses weak algorithm (bcrypt rounds=10, should be 12+)
+         Minor: Missing rate limiting on login endpoint
+         Verdict: ⚠️ Approved with comments"
 
-Claude: [spawns cross-test] codex-test-frontend + gemini-test-backend
+Claude: [asks user] "Gemini 审查发现 1 个重要问题（密码哈希强度不足），主人决定？"
+User: [selects] "修复后端问题"
 
-Codex: "Frontend review: ⚠️  Missing validation for email format"
-Gemini: "Backend review: ✅ All good, response types match"
+Claude: [re-spawns] Codex "修复：增强密码哈希强度到 bcrypt rounds=12"
+Codex: "Fixed. Updated auth.ts:45, tests still passing."
 
-Claude: [asks user] "交叉测试发现 1 个警告，主人决定？"
-User: [selects] "修复前端问题"
-
-Claude: [re-spawns] gemini-frontend "Fix: add email validation"
-Gemini: "Fixed. Added Zod schema validation."
-
-Claude: [final review] Integration verified, tests pass.
-        [asks] "通过，提交代码？"
+Claude: [asks] "修复完成，提交代码？"
 User: [confirms]
 
-Claude: [commits] feat: user profile editing with validation
+Claude: [commits] feat: user login API with secure password hashing
         [archives task]
 
 Done! ✨
@@ -306,8 +207,10 @@ Done! ✨
 
 - Workers run detached — channel supervisor manages lifecycle
 - Claude polls channel messages (no push notifications yet)
-- Cross-test can run in parallel (both test workers at once)
+- Codex handshake: ~10-15 seconds
+- Gemini handshake: ~60-61 seconds (MCP loading), timeout set to 65s
 - User approval required before commit (safety gate)
-- Skill auto-loads when "tri-model" appears in task name or user mention
+- Skill auto-loads when "tri-model", "codex", or "code review" mentioned
+- Frontend development is handled separately by the user
 
-Ready to orchestrate! 🎭
+Ready to orchestrate backend development and code review! 🎭
