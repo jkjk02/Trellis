@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trellis 三模型协作监控</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .input-group {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        input, button {
+            padding: 0.75rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        input {
+            flex: 1;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .status.idle {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .status.monitoring {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .workers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .worker-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .worker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f3f4f6;
+        }
+
+        .worker-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .worker-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .worker-badge.codex {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .worker-badge.gemini {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .worker-badge.claude {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .worker-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.spawned {
+            background: #10b981;
+        }
+
+        .status-dot.working {
+            background: #3b82f6;
+        }
+
+        .status-dot.error {
+            background: #ef4444;
+        }
+
+        .status-dot.done {
+            background: #8b5cf6;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .worker-output {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #374151;
+        }
+
+        .worker-output:empty::before {
+            content: '等待输出...';
+            color: #9ca3af;
+            font-style: italic;
+        }
+
+        .event-line {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem;
+        }
+
+        .event-line.spawned {
+            color: #059669;
+        }
+
+        .event-line.error {
+            color: #dc2626;
+            font-weight: 500;
+        }
+
+        .event-line.done {
+            color: #7c3aed;
+            font-weight: 500;
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            opacity: 0.8;
+            margin-top: 3rem;
+        }
+
+        .instructions {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .instructions h3 {
+            margin-bottom: 1rem;
+            color: #1f2937;
+        }
+
+        .instructions ol {
+            margin-left: 1.5rem;
+            color: #6b7280;
+            line-height: 1.8;
+        }
+
+        .instructions code {
+            background: #f3f4f6;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎭 Trellis 三模型协作监控</h1>
+            <p>实时监控 Claude + Codex + Gemini 协作状态</p>
+        </header>
+
+        <div class="instructions">
+            <h3>📖 使用说明</h3>
+            <ol>
+                <li>在终端运行 <code>trellis channel spawn &lt;channel-name&gt; ...</code> 启动 workers</li>
+                <li>在下方输入 channel 名称（例如：<code>user-profile-feature</code>）</li>
+                <li>点击"开始监控"查看实时状态</li>
+                <li>监控会每 3 秒自动刷新一次</li>
+            </ol>
+        </div>
+
+        <div class="controls">
+            <div class="input-group">
+                <input type="text" id="channelName" placeholder="输入 channel 名称 (例如: user-profile-feature)" />
+                <button id="startBtn" onclick="startMonitoring()">开始监控</button>
+                <button id="stopBtn" onclick="stopMonitoring()" disabled>停止监控</button>
+            </div>
+            <div class="status idle" id="statusBar">
+                空闲 — 输入 channel 名称开始监控
+            </div>
+        </div>
+
+        <div class="workers-grid" id="workersGrid">
+            <!-- Worker cards will be injected here -->
+        </div>
+
+        <footer>
+            <p>Powered by Trellis Channel System | 浮浮酱 ฅ'ω'ฅ</p>
+        </footer>
+    </div>
+
+    <script>
+        let monitorInterval = null;
+        let channelName = '';
+
+        async function fetchChannelMessages() {
+            // This is a mock implementation since we can't actually run shell commands from browser
+            // In a real setup, this would call a local HTTP server that wraps `trellis channel messages`
+
+            // For demo purposes, simulate some events
+            return `[spawned]  by=main  worker=codex-backend provider=codex  agent=backend-implement pid=12345  ${new Date().toLocaleTimeString()}
+[spawned]  by=main  worker=gemini-frontend provider=gemini  agent=frontend-implement pid=67890  ${new Date().toLocaleTimeString()}
+[done]     by=codex-backend  Backend implementation complete. 3 files modified.  ${new Date().toLocaleTimeString()}
+[done]     by=gemini-frontend  Frontend implementation complete. 5 components created.  ${new Date().toLocaleTimeString()}`;
+        }
+
+        function parseChannelEvents(output) {
+            const lines = output.trim().split('\n');
+            const workers = {};
+
+            lines.forEach(line => {
+                const match = line.match(/\[(.*?)\]\s+by=(.*?)\s+worker=([^\s]+)/);
+                if (match) {
+                    const [, eventType, by, workerName] = match;
+
+                    if (!workers[workerName]) {
+                        workers[workerName] = {
+                            name: workerName,
+                            provider: line.includes('provider=codex') ? 'codex' :
+                                     line.includes('provider=gemini') ? 'gemini' : 'claude',
+                            events: [],
+                            status: 'spawned'
+                        };
+                    }
+
+                    workers[workerName].events.push({
+                        type: eventType,
+                        text: line
+                    });
+
+                    if (eventType === 'done') workers[workerName].status = 'done';
+                    else if (eventType === 'error') workers[workerName].status = 'error';
+                    else if (eventType === 'spawned') workers[workerName].status = 'spawned';
+                }
+            });
+
+            return Object.values(workers);
+        }
+
+        function renderWorkers(workers) {
+            const grid = document.getElementById('workersGrid');
+
+            if (workers.length === 0) {
+                grid.innerHTML = '<p style="color: white; text-align: center; grid-column: 1/-1;">暂无 worker 数据</p>';
+                return;
+            }
+
+            grid.innerHTML = workers.map(worker => `
+                <div class="worker-card">
+                    <div class="worker-header">
+                        <div class="worker-name">${worker.name}</div>
+                        <div class="worker-badge ${worker.provider}">${worker.provider.toUpperCase()}</div>
+                    </div>
+                    <div class="worker-status">
+                        <div class="status-dot ${worker.status}"></div>
+                        <span>状态: ${
+                            worker.status === 'spawned' ? '已启动' :
+                            worker.status === 'working' ? '工作中' :
+                            worker.status === 'done' ? '已完成' :
+                            worker.status === 'error' ? '错误' : '未知'
+                        }</span>
+                    </div>
+                    <div class="worker-output">
+                        ${worker.events.map(event => `
+                            <div class="event-line ${event.type}">${event.text}</div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function updateMonitor() {
+            try {
+                const output = await fetchChannelMessages();
+                const workers = parseChannelEvents(output);
+                renderWorkers(workers);
+
+                document.getElementById('statusBar').className = 'status monitoring';
+                document.getElementById('statusBar').textContent = `监控中: ${channelName} (${workers.length} workers)`;
+            } catch (error) {
+                document.getElementById('statusBar').className = 'status error';
+                document.getElementById('statusBar').textContent = `错误: ${error.message}`;
+            }
+        }
+
+        function startMonitoring() {
+            const input = document.getElementById('channelName');
+            channelName = input.value.trim();
+
+            if (!channelName) {
+                alert('请输入 channel 名称');
+                return;
+            }
+
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+
+            updateMonitor();
+            monitorInterval = setInterval(updateMonitor, 3000);
+        }
+
+        function stopMonitoring() {
+            if (monitorInterval) {
+                clearInterval(monitorInterval);
+                monitorInterval = null;
+            }
+
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('statusBar').className = 'status idle';
+            document.getElementById('statusBar').textContent = '监控已停止';
+        }
+
+        // Note: This is a demo interface. For real monitoring, you need:
+        // 1. A local HTTP server that wraps `trellis channel messages <channel>` command
+        // 2. Fetch actual command output via HTTP endpoint
+        // 3. Parse real event stream
+
+        console.log('💡 提示：这是演示界面。实际监控需要配合本地 HTTP 服务。');
+        console.log('参考实现：创建一个 Node.js/Python HTTP 服务包装 `trellis channel messages` 命令。');
+    </script>
+</body>
+</html>
