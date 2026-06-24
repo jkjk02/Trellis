@@ -1,0 +1,33 @@
+{
+  "id": "tri-model-orchestration",
+  "name": "tri-model-orchestration",
+  "title": "Trellis 三模型协作融合 (Claude+Codex+Gemini)",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "admin",
+  "assignee": "admin",
+  "createdAt": "2026-06-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "06-24-open-design-skill",
+    "06-24-codex-worker",
+    "06-24-gemini-worker",
+    "06-24-orchestration-engine",
+    "06-24-web-monitor",
+    "06-24-tui-monitor"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
