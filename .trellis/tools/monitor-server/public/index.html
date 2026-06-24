@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trellis Channel Monitor - Real-time</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .controls input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .controls input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .controls button {
+            padding: 0.75rem 1.5rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .controls button:hover {
+            background: #5568d3;
+        }
+
+        .controls button.stop {
+            background: #ef4444;
+        }
+
+        .controls button.stop:hover {
+            background: #dc2626;
+        }
+
+        .status-bar {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #94a3b8;
+        }
+
+        .status-dot.connected {
+            background: #22c55e;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .messages-container {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .message {
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-radius: 6px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .message.spawned {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .message.done {
+            background: #dcfce7;
+            border-left: 4px solid #22c55e;
+        }
+
+        .message.error {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+        }
+
+        .message.killed {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+        }
+
+        .message .timestamp {
+            color: #64748b;
+            font-size: 0.85rem;
+            margin-left: 0.5rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #94a3b8;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 0.5rem;
+            font-size: 1.25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎭 Trellis Channel Monitor</h1>
+            <p>Real-time monitoring with SSE</p>
+        </header>
+
+        <div class="controls">
+            <input type="text" id="channelName" placeholder="输入 channel 名称（如：test-tri-model）" />
+            <button id="startBtn" onclick="startMonitoring()">🚀 开始监控</button>
+            <button id="stopBtn" class="stop" onclick="stopMonitoring()" style="display: none;">⏹️ 停止</button>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">未连接</span>
+            </div>
+            <div>
+                <span id="messageCount">消息: 0</span>
+            </div>
+        </div>
+
+        <div class="messages-container" id="messagesContainer">
+            <div class="empty-state">
+                <h3>等待连接</h3>
+                <p>输入 channel 名称并点击"开始监控"</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3737/api';
+        let eventSource = null;
+        let channelName = '';
+        let messageCount = 0;
+
+        async function startMonitoring() {
+            const input = document.getElementById('channelName');
+            channelName = input.value.trim();
+
+            if (!channelName) {
+                alert('请输入 channel 名称');
+                return;
+            }
+
+            // Close existing connection
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            // Update UI
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'block';
+            document.getElementById('messagesContainer').innerHTML = '';
+            messageCount = 0;
+            updateStatus('connecting', '连接中...');
+
+            // Fetch historical messages
+            try {
+                const response = await fetch(`${API_BASE}/channel/${channelName}/messages?limit=50`);
+                const data = await response.json();
+
+                if (data.messages && data.messages.length > 0) {
+                    data.messages.forEach(msg => addMessage(msg));
+                }
+            } catch (error) {
+                console.error('Failed to fetch historical messages:', error);
+            }
+
+            // Connect to SSE
+            eventSource = new EventSource(`${API_BASE}/channel/${channelName}/events`);
+
+            eventSource.onopen = () => {
+                updateStatus('connected', `监控中: ${channelName}`);
+            };
+
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'message') {
+                    addMessage(data.data);
+                } else if (data.type === 'connected') {
+                    console.log('Connected to channel:', data.channel);
+                } else if (data.type === 'server-shutdown') {
+                    updateStatus('error', '服务器关闭');
+                    stopMonitoring();
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('SSE error:', error);
+                updateStatus('error', '连接错误');
+                stopMonitoring();
+            };
+        }
+
+        function stopMonitoring() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('stopBtn').style.display = 'none';
+            updateStatus('disconnected', '未连接');
+        }
+
+        function addMessage(msg) {
+            const container = document.getElementById('messagesContainer');
+
+            // Remove empty state
+            const emptyState = container.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${msg.type}`;
+            messageEl.innerHTML = `
+                <span>${msg.raw}</span>
+                <span class="timestamp">${msg.timestamp || new Date().toLocaleTimeString()}</span>
+            `;
+
+            container.appendChild(messageEl);
+            container.scrollTop = container.scrollHeight;
+
+            messageCount++;
+            document.getElementById('messageCount').textContent = `消息: ${messageCount}`;
+        }
+
+        function updateStatus(status, text) {
+            const dot = document.getElementById('statusDot');
+            const textEl = document.getElementById('statusText');
+
+            dot.className = `status-dot ${status}`;
+            textEl.textContent = text;
+        }
+
+        // Auto-focus input on load
+        window.onload = () => {
+            document.getElementById('channelName').focus();
+        };
+    </script>
+</body>
+</html>
