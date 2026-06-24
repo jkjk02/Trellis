@@ -121,7 +121,8 @@ export async function runSupervisor(
     stdio: ["pipe", "pipe", "pipe"],
     // Windows: spawn() does not resolve PATH without shell or .cmd extension
     // Use shell mode on Windows to find codex.cmd, gemini.cmd, etc.
-    ...(process.platform === "win32" ? { shell: true } : {}),
+    // windowsHide prevents CMD window popup
+    ...(process.platform === "win32" ? { shell: true, windowsHide: true } : {}),
   }) as Child;
 
   // ── shutdown controller declared before listener attachment ──

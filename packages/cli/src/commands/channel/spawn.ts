@@ -312,6 +312,8 @@ async function spawnLocked(
         ...process.env,
         TRELLIS_CHANNEL_PROJECT: project,
       },
+      // Windows: hide console window for detached supervisor
+      ...(process.platform === "win32" ? { windowsHide: true } : {}),
     },
   );
 
